@@ -14,7 +14,7 @@ def test_seed(setup_random):
 
 @pytest.mark.django_db(transaction=True)
 def test_world_step(setup_random, caplog):
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     center = Position(x=0, y=0)
     center.save()
     w = World(sun_power=1.125, entropy=0.0625)
@@ -24,6 +24,6 @@ def test_world_step(setup_random, caplog):
     logger.info(f'Stepping with initial Moss: {m}')
     w.step()
     logger.info(f'Stepped with final Mosses: {w.moss_set.filter(alive=True)}')
-    w.step(10)
+    w.step(40)
     logger.info(f'Stepped with final Mosses: {w.moss_set.all()}')
     assert w.moss_set.count() == 3

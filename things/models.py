@@ -1,5 +1,7 @@
 import random
 import logging
+import threading
+import queue
 from typing import final
 from django.db import models, transaction
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -12,6 +14,12 @@ _MAX_ENTROPY = 1.0-_MIN_ENTROPY
 _DEFAULT_SUN_POWER=2.0
 _DEFAULT_ENTROPY=0.125
 
+
+def thing_thread(thing, son_queue):
+    thing.act()
+    thing.eat()
+    thing.son(son_queue)
+    thing.die()
 
 class Position(models.Model):
     x = models.IntegerField()
@@ -44,13 +52,41 @@ class World(models.Model):
         return effective_sun_power
 
     def step(self, num_steps=1):
+        son_queue = queue.Queue()
         for n in range(num_steps):
+            threads = []
+            sons = []
             with transaction.atomic():
-                for t in self.moss_set.filter(alive=True):
-                    t.act()
-                    t.eat()
-                    t.son()
-                    t.die()
+                things = self.moss_set.filter(alive=True)
+                nthings = things.count()
+                logger.debug(f"Starting transaction for step {n}")
+                logger.debug(f"Creating {nthings} threads.")
+                for t in things:
+                    thread = threading.Thread(
+                        name=f'Thing_Thread-{t.pk}',
+                        target=thing_thread,
+                        args=(t, son_queue),
+                        daemon=True
+                    )
+                    threads.append(thread)
+                
+                logger.debug(f"Starting all{nthings} threads")
+                for thread in threads:
+                    thread.start()
+
+                logger.debug(f"Joining {nthings} threads")
+                for thread in threads:
+                    thread.join()
+                logger.debug(f"Reaping Sons {n}")
+                try:
+                    son = son_queue.get()
+                    son.save()
+                except queue.Empty:
+                    pass
+
+                logger.debug(f"Finishing transaction {n}")
+                for t in things:
+                    t.save()
                 self.save()
 
     class Meta:
@@ -103,22 +139,23 @@ class Thing(models.Model):
         raise NotImplementedError
 
     @final
-    def son(self):
+    def son(self, son_queue):
         if self.energy > self.min_energy_son:
             son_energy = self.energy * self.energy_son
             self.energy -= son_energy
             son = self.get_son()
             son.mutate()
             son.energy = son_energy * (1.0 - self.world.entropy)
-            son.save()
-            logger.debug(f"{self} have a son: {son}")
-            self.save()
+            logger.debug(f"Queuing son to born")
+            son_queue.put(son)
+            logger.info(f"{self} have a son: {son}")
 
     @final
     def die(self):
         if self.energy <= 0.0:
             self.alive = False
-            self.save()
+            self.energy = 0.0
+            #self.save()
             logger.info(f"I have died: {self}")
 
     class Meta:
@@ -146,14 +183,14 @@ class Moss(Thing):
         self.energy -= 1.0
         if self.energy < 0.0:
             self.energy = 0.0
-        self.save()
+        # self.save()
         self.die()
 
     def eat(self):
         bite = self.world.get_energy(self)
         logger.debug(f'{self.pk}: I have bite: {bite}')
         self.energy += bite
-        self.save()
+        # self.save()
 
     def get_son(self):
         dist = random.randint(1, self.spread)
@@ -167,7 +204,7 @@ class Moss(Thing):
         else:
             y += dist
         self.energy -= dist
-        self.save()
+        #self.save()
         son_position = Position.objects.get_or_create(x=x, y=y)[0]
         logger.debug(f"Son position: {son_position}")
         son = Moss(
