@@ -24,6 +24,6 @@ def test_world_step(setup_random, caplog):
     logger.info(f'Stepping with initial Moss: {m}')
     w.step()
     logger.info(f'Stepped with final Mosses: {w.moss_set.filter(alive=True)}')
-    w.step(100)
+    w.step(10)
     logger.info(f'Stepped with final Mosses: {w.moss_set.all()}')
-    assert w.moss_set.count() == 1
+    assert w.moss_set.count() == 3
